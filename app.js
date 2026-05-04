@@ -327,7 +327,16 @@ function addWord() {
   var lr = document.getElementById('lookup-result');
   if (lr) lr.style.display = 'none';
   renderWordBank(); showToast('添加成功');
-  if (dateInput) dateInput.value = '';
+  // 添加成功后，保持日期选择器的值（如果有的话），方便继续添加同一周的单词
+  // 如果日期选择器被清空了，重新设置为当前周偏移量对应的周一
+  if (dateInput && !dateInput.value && currentWeekOffset !== 0) {
+    var monday = new Date();
+    monday.setDate(monday.getDate() - (monday.getDay() || 7) + 1 + currentWeekOffset * 7);
+    var y = monday.getFullYear();
+    var m = String(monday.getMonth() + 1).padStart(2, '0');
+    var d2 = String(monday.getDate()).padStart(2, '0');
+    dateInput.value = y + '-' + m + '-' + d2;
+  }
 }
 function lookupWord() {
   var input = document.getElementById('input-word');
