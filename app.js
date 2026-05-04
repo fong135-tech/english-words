@@ -319,11 +319,14 @@ function copyStoryPrompt() {
   var lenEl = document.getElementById('story-length');
   var style = styleEl ? styleEl.value : 'adventure';
   var length = lenEl ? lenEl.value : 'medium';
-  var sMap = {adventure:'冒险',fairy:'童话',funny:'搞笑',science:'科学',daily:'日常'};
+  var sMap = {adventure:'adventure',fairy:'fairy tale',funny:'funny',science:'science fiction',daily:'daily life'};
   var lMap = {short:'100',medium:'200',long:'300'};
-  var prompt = '请用英语写一个' + (sMap[style]||'冒险') + '故事，约' + (lMap[length]||'200') + '词。\n'
-    + '使用以下单词（用**word**标记）：\n' + words.join('、') + '\n\n'
-    + 'JSON格式：{"title":"标题","text":"正文","words":["word1","word2"]}';
+  var prompt = 'Write an English ' + (sMap[style]||'adventure') + ' story using about ' + (lMap[length]||'200') + ' words.\n\n';
+  prompt += 'REQUIRED: You MUST wrap EVERY word from the list below in double asterisks like **word** in the story text.\n';
+  prompt += 'Example: "The **brave** knight found a **magic** sword."\n\n';
+  prompt += 'Word list: ' + words.join(', ') + '\n\n';
+  prompt += 'Return ONLY valid JSON in this format:\n';
+  prompt += '{"title":"story title","text":"story text with **word** markers","words":["word1","word2",...]}';
   if (navigator.clipboard) {
     navigator.clipboard.writeText(prompt).then(function() { showToast('提示词已复制'); var pa = document.getElementById('story-paste-area'); if (pa) pa.style.display = 'block'; });
   }
@@ -354,8 +357,28 @@ function showStoryOutput() {
   if (titleEl) titleEl.textContent = lastStoryTitle;
   var textEl = document.getElementById('story-text');
   if (textEl) {
-    var html = escHtml(lastStory).replace(/\*\*(.*?)\*\*/g, '<mark>$1</mark>');
-    textEl.innerHTML = html;
+    // Step 1: escape HTML
+    var escaped = escHtml(lastStory);
+    // Step 2: try to replace **word** markers
+    var withMarks = escaped.replace(/\*\*(.*?)\*\*/g, '<mark>$1</mark>');
+    // Step 3: if no markers found, auto-highlight words from lastStoryWords
+    if (withMarks === escaped) {
+      var lowerText = lastStory.toLowerCase();
+      var highlighted = escaped;
+      var usedWords = {};
+      for (var w = 0; w < lastStoryWords.length; w++) {
+        var word = lastStoryWords[w];
+        if (usedWords[word]) continue;
+        var regex = new RegExp('\\b' + escHtml(word).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+        highlighted = highlighted.replace(regex, function(match) {
+          usedWords[word] = true;
+          return '<mark>' + match + '</mark>';
+        });
+      }
+      textEl.innerHTML = highlighted;
+    } else {
+      textEl.innerHTML = withMarks;
+    }
   }
   var wordsEl = document.getElementById('story-used-words');
   if (wordsEl) {
