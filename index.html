@@ -125,11 +125,22 @@ footer { background: white; border-top: 1px solid #dfe6e9; padding: 14px 24px; d
         <input id="input-zh" type="text" style="flex:1" placeholder="中文意思（自动查询或手动输入）">
         <input id="input-phonetic" type="text" style="flex:1" placeholder="音标（自动填充）">
       </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:0.85rem;color:#636e72;font-weight:600">添加日期（不填则默认为今天）
+          <input id="input-date" type="date" style="margin-left:8px;padding:6px 10px;border:1.5px solid #dfe6e9;border-radius:8px;font-size:0.85rem;font-family:inherit">
+        </label>
+      </div>
       <div id="lookup-result" style="display:none;margin-bottom:10px;padding:10px;background:#f8faff;border-radius:10px;font-size:0.88rem;color:#2d3436"></div>
       <div style="display:flex;gap:10px;align-items:flex-start">
         <textarea id="input-batch" style="flex:1" placeholder="批量添加：每行一个单词"></textarea>
         <button id="btn-batch-add" class="btn btn-secondary">批量添加</button>
       </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <span style="font-weight:700;color:#636e72;font-size:0.9rem">数据管理：</span>
+      <button class="btn btn-sm btn-secondary" onclick="exportData()">📤 导出数据</button>
+      <button class="btn btn-sm btn-secondary" onclick="document.getElementById('import-file-input').click()">📥 导入数据</button>
+      <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="importData(this)">
     </div>
     <div id="wordbank-grid"></div>
     <div id="wordbank-empty" style="display:none;text-align:center;padding:60px 20px;color:#636e72">

@@ -157,6 +157,53 @@ function addWeekNewToPlan() {
   else showToast('本周新词已全部在计划中');
 }
 
+/* ========== 数据导出/导入 ========== */
+function exportData() {
+  var data = {
+    wordBank: wordBank,
+    storyData: storyData
+  };
+  var json = JSON.stringify(data, null, 2);
+  var blob = new Blob([json], {type:'application/json'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'english-words-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('数据已导出');
+}
+function importData(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = JSON.parse(e.target.result);
+      if (data.wordBank && Array.isArray(data.wordBank)) {
+        wordBank = data.wordBank;
+        saveWords();
+      }
+      if (data.storyData) {
+        storyData = data.storyData;
+        localStorage.setItem(STORY_KEY, JSON.stringify(storyData));
+      }
+      renderWordBank();
+      renderLearnList();
+      updatePlanBtn();
+      showToast('数据已导入，共 ' + wordBank.length + ' 个单词');
+      if (typeof renderStoryCheckboxes === 'function') renderStoryCheckboxes();
+      if (typeof renderQuizCheckboxes === 'function') renderQuizCheckboxes();
+    } catch(err) {
+      showToast('文件格式错误');
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
 /* ========== Toast ========== */
 var toastTimer = null;
 function showToast(msg) {
@@ -256,8 +303,9 @@ function addWord() {
   var phInput = document.getElementById('input-phonetic');
   var zhVal = zhInput ? zhInput.value.trim() : '';
   var phVal = phInput ? phInput.value.trim() : '';
-  var today = todayStr();
-  wordBank.push({ id: Date.now(), word: val, zh: zhVal, phonetic: phVal, definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false, inPlan:false });
+  var dateInput = document.getElementById('input-date');
+  var addDate = (dateInput && dateInput.value) ? dateInput.value : todayStr();
+  wordBank.push({ id: Date.now(), word: val, zh: zhVal, phonetic: phVal, definitions:[], examples:[], etymology:'', addDate:addDate, reviewPlan:buildReviewPlan(addDate), wrongCount:0, lastWrong:'', mastered:false, inPlan:false });
   saveWords();
   input.value = '';
   if (zhInput) zhInput.value = '';
@@ -265,6 +313,7 @@ function addWord() {
   var lr = document.getElementById('lookup-result');
   if (lr) lr.style.display = 'none';
   renderWordBank(); showToast('添加成功');
+  if (dateInput) dateInput.value = '';
 }
 function lookupWord() {
   var input = document.getElementById('input-word');
