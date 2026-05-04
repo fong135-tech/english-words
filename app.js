@@ -210,28 +210,21 @@ function lookupWord() {
       if (phonetic) {
         var phEl = document.getElementById('input-phonetic');
         if (phEl) phEl.value = phonetic;
-        html += '<div style="color:#5b8dee;font-weight:600;margin-bottom:6px">音标: /' + escHtml(phonetic) + '/</div>';
+        html += '<div style="color:#5b8dee;font-weight:600;margin-bottom:4px">/' + escHtml(phonetic) + '/</div>';
       }
-      // Meanings / definitions
-      if (entry.meanings) {
-        html += '<div><strong>英文释义:</strong></div>';
-        var defs = [];
-        for (var i = 0; i < Math.min(entry.meanings.length, 3); i++) {
-          var m = entry.meanings[i];
-          var pos = m.partOfSpeech || '';
-          for (var j = 0; j < Math.min(m.definitions.length, 2); j++) {
-            var d = m.definitions[j];
-            var defText = (d.definition || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            defs.push('<span style="color:#5b8dee">' + escHtml(pos) + '</span> ' + defText);
-            if (d.example) {
-              defs[defs.length-1] += '<br><span style="color:#b2bec3;font-size:0.85rem">例: ' + escHtml(d.example) + '</span>';
-            }
-          }
+      // Short English definition (just first one)
+      if (entry.meanings && entry.meanings.length > 0) {
+        var firstMeaning = entry.meanings[0];
+        var pos = firstMeaning.partOfSpeech || '';
+        if (firstMeaning.definitions && firstMeaning.definitions.length > 0) {
+          var shortDef = firstMeaning.definitions[0].definition || '';
+          // Keep it short
+          if (shortDef.length > 60) shortDef = shortDef.substring(0, 60) + '...';
+          html += '<div style="color:#636e72;font-size:0.85rem">' + escHtml(pos) + ' ' + escHtml(shortDef) + '</div>';
         }
-        html += '<div style="margin-top:4px;color:#2d3436;line-height:1.7">' + defs.join('<br>') + '</div>';
       }
       if (resultEl) resultEl.innerHTML = html;
-      // Try to translate to Chinese using free Google Translate endpoint
+      // Translate word to Chinese
       translateToChinese(word, entry);
     })
     .catch(function(e) {
@@ -239,33 +232,22 @@ function lookupWord() {
     });
 }
 function translateToChinese(word, entry) {
-  // Use free Google Translate to get Chinese meaning
-  var textToTranslate = word;
-  if (entry && entry.meanings) {
-    var firstDef = '';
-    for (var i = 0; i < entry.meanings.length; i++) {
-      for (var j = 0; j < entry.meanings[i].definitions.length; j++) {
-        firstDef = entry.meanings[i].definitions[j].definition;
-        break;
-      }
-      if (firstDef) break;
-    }
-    if (firstDef) textToTranslate = firstDef;
-  }
-  // Use a simple approach: just set placeholder with English def, user can type Chinese manually
-  // For actual Chinese translation, we'd need a backend or CORS proxy
-  // Instead, let's try the free LibreTranslate API or similar
-  // Simplest: use MyMemory free translation API
-  fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(textToTranslate) + '&langpair=en|zh-CN')
+  // Only translate the word itself, not the definition
+  fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(word) + '&langpair=en|zh-CN')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data && data.responseData && data.responseData.translatedText) {
         var zhTranslation = data.responseData.translatedText;
+        // Clean up: remove trailing punctuation, keep it short
+        zhTranslation = zhTranslation.replace(/[，。！？、；：""''（）\[\]{}]/g, ' ').trim();
+        // Take only the first part if multiple meanings separated by comma
+        var shortZh = zhTranslation.split(/[,，;；]/)[0].trim();
+        if (shortZh.length > 20) shortZh = shortZh.substring(0, 20);
         var zhEl = document.getElementById('input-zh');
         if (zhEl && !zhEl.value) {
-          zhEl.value = zhTranslation;
+          zhEl.value = shortZh;
           var resultEl = document.getElementById('lookup-result');
-          if (resultEl) resultEl.innerHTML += '<div style="margin-top:8px;color:#26de81"><strong>中文意思（自动翻译）:</strong> ' + escHtml(zhTranslation) + '</div>';
+          if (resultEl) resultEl.innerHTML += '<div style="margin-top:8px;color:#26de81"><strong>中文:</strong> ' + escHtml(shortZh) + '</div>';
         }
       }
     })
