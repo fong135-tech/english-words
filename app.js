@@ -287,7 +287,21 @@ function renderWordBank() {
   }
   grid.innerHTML = html;
 }
-function weekNavigate(d) { currentWeekOffset += d; renderWordBank(); }
+function weekNavigate(d) {
+  currentWeekOffset += d;
+  // 自动把日期选择器设为目标周的周一
+  var dateInput = document.getElementById('input-date');
+  if (dateInput && !dateInput.value) {
+    var monday = new Date();
+    monday.setDate(monday.getDate() - (monday.getDay() || 7) + 1 + currentWeekOffset * 7);
+    var y = monday.getFullYear();
+    var m = String(monday.getMonth() + 1).padStart(2, '0');
+    var d2 = String(monday.getDate()).padStart(2, '0');
+    dateInput.value = y + '-' + m + '-' + d2;
+    dateInput.title = '已自动设为' + (currentWeekOffset === 0 ? '本周' : currentWeekOffset < 0 ? '上周' : '下周') + '的日期，可手动修改';
+  }
+  renderWordBank();
+}
 function addWord() {
   var input = document.getElementById('input-word');
   if (!input) return;
