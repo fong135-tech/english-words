@@ -407,7 +407,17 @@ function copyQuizPrompt() {
   }
   if (words.length === 0) words = wordBank.slice(0, count).map(function(w){return w.word});
   var tMap = {fill:'填空题',choice:'选择题',sort:'排序题',cloze:'完形填空'};
-  var prompt = '生成' + count + '道英语' + (tMap[type]||'填空题') + '。\n难度：' + diff + '。\n单词：' + words.join('、') + '\n\nJSON数组格式：[{"type":"' + type + '","question":"题目","answer":"答案","options":["A","B","C","D"],"hint":""},...]';
+  var prompt = 'Generate ' + count + ' English ' + (type==='fill'?'fill-in-the-blank':type==='choice'?'multiple-choice':type==='sort'?'sentence-ordering':'cloze') + ' questions. Difficulty: ' + diff + '. Words to use: ' + words.join(', ') + '.\n\n';
+  prompt += 'IMPORTANT FORMAT RULES:\n';
+  prompt += '- Return ONLY a JSON array, no extra text.\n';
+  prompt += '- For multiple-choice: "answer" MUST be the index number (0,1,2,3), NOT the text.\n';
+  prompt += '- For all other types: "answer" is the text string.\n\n';
+  prompt += 'JSON format:\n';
+  if (type === 'choice') {
+    prompt += '[{"type":"choice","question":"question text","answer":0,"options":["opt A","opt B","opt C","opt D"],"hint":"optional hint"},...]';
+  } else {
+    prompt += '[{"type":"' + type + '","question":"question text","answer":"correct answer text","options":[],"hint":"optional hint"},...]';
+  }
   if (navigator.clipboard) {
     navigator.clipboard.writeText(prompt).then(function() { showToast('提示词已复制'); var pa = document.getElementById('quiz-paste-area'); if (pa) pa.style.display = 'block'; });
   }
@@ -431,16 +441,19 @@ function renderQuizQuestions() {
   for (var i = 0; i < quizData.length; i++) {
     var q = quizData[i];
     var typeName = q.type==='fill'?'填空':q.type==='choice'?'选择':q.type==='sort'?'排序':'完形';
-    html += '<div class="quiz-card card" style="margin-bottom:16px"><div style="font-weight:700;margin-bottom:10px">第' + (i+1) + '题（' + typeName + '）</div>'
+    html += '<div class="quiz-card card" id="quiz-q-' + i + '" style="margin-bottom:16px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+      + '<div style="font-weight:700">第' + (i+1) + '题（' + typeName + '）</div>'
+      + '<div id="quiz-mark-' + i + '"></div></div>'
       + '<div style="margin-bottom:12px">' + escHtml(q.question) + '</div>';
     if (q.type === 'choice' && q.options) {
-      html += '<div style="display:flex;flex-direction:column;gap:8px">';
+      html += '<div id="quiz-opts-' + i + '" style="display:flex;flex-direction:column;gap:8px">';
       for (var j = 0; j < q.options.length; j++) {
-        html += '<button class="choice-btn" style="padding:8px 14px;border:1.5px solid #dfe6e9;border-radius:10px;background:white;cursor:pointer;text-align:left;font-family:inherit;font-size:0.92rem" onclick="selectChoice(' + i + ',' + j + ',this)">' + String.fromCharCode(65+j) + '. ' + escHtml(q.options[j]) + '</button>';
+        html += '<button class="choice-btn" id="quiz-opt-' + i + '-' + j + '" style="padding:8px 14px;border:1.5px solid #dfe6e9;border-radius:10px;background:white;cursor:pointer;text-align:left;font-family:inherit;font-size:0.92rem" onclick="selectChoice(' + i + ',' + j + ',this)">' + String.fromCharCode(65+j) + '. ' + escHtml(q.options[j]) + '</button>';
       }
       html += '</div>';
     } else {
-      html += '<input type="text" id="quiz-ans-' + i + '" style="width:100%;padding:10px 14px;border:1.5px solid #dfe6e9;border-radius:10px;font-size:0.92rem" placeholder="输入答案">';
+      html += '<input type="text" id="quiz-ans-' + i + '" style="width:100%;padding:10px 14px;border:1.5px solid #dfe6e9;border-radius:10px;font-size:0.92rem" placeholder="输入答案">'
+        + '<div id="quiz-correct-ans-' + i + '" style="display:none;margin-top:6px;font-size:0.9rem"></div>';
     }
     if (q.hint) html += '<div style="font-size:0.82rem;color:#b2bec3;margin-top:8px">提示：' + escHtml(q.hint) + '</div>';
     html += '</div>';
@@ -466,16 +479,95 @@ function checkQuiz() {
   for (var i = 0; i < quizData.length; i++) {
     var q = quizData[i];
     var isCorrect = false;
-    if (q.type === 'choice') {
-      isCorrect = quizAnswers[i] !== undefined && String(quizAnswers[i]) === String(q.answer);
+    var userAnsText = '';
+    if (q.type === 'choice' && q.options) {
+      // 兼容两种格式：q.answer 可能是索引数字，也可能是答案文本
+      var userIdx = quizAnswers[i];
+      // 方式1：把 q.answer 当索引来比（处理数字和字符串形式的索引）
+      var ansAsIndex = Number(q.answer);
+      // 方式2：把 q.answer 当文本来比
+      var ansAsText = String(q.answer).toLowerCase().trim();
+      var userOptText = (userIdx !== undefined && q.options[userIdx]) ? q.options[userIdx].toLowerCase().trim() : '';
+      // 只要有一种方式匹配就算对
+      isCorrect = (userIdx !== undefined) && (
+        (!isNaN(ansAsIndex) && userIdx === ansAsIndex) ||   // 索引匹配
+        (userOptText === ansAsText)                           // 文本匹配
+      );
     } else {
       var input = document.getElementById('quiz-ans-' + i);
-      var userAns = input ? input.value.trim().toLowerCase() : '';
-      isCorrect = userAns === String(q.answer).trim().toLowerCase();
+      userAnsText = input ? input.value.trim() : '';
+      isCorrect = userAnsText.toLowerCase() === String(q.answer).trim().toLowerCase();
+    }
+    // 显示对错标记
+    var markEl = document.getElementById('quiz-mark-' + i);
+    if (markEl) {
+      if (isCorrect) {
+        markEl.innerHTML = '<span style="color:#26de81;font-size:1.4rem;font-weight:900">O</span>';
+      } else {
+        markEl.innerHTML = '<span style="color:#ff5e57;font-size:1.4rem;font-weight:900">X</span>';
+      }
+    }
+    // 选择题：高亮正确/错误选项
+    if (q.type === 'choice' && q.options) {
+      // 找出正确答案的索引（兼容两种格式）
+      var correctIdx = -1;
+      var tryIdx = Number(q.answer);
+      if (!isNaN(tryIdx) && tryIdx >= 0 && tryIdx < q.options.length) {
+        correctIdx = parseInt(tryIdx);
+      } else {
+        // q.answer 是文本，找到匹配的选项索引
+        var ansText = String(q.answer).toLowerCase().trim();
+        for (var k = 0; k < q.options.length; k++) {
+          if (q.options[k].toLowerCase().trim() === ansText) { correctIdx = k; break; }
+        }
+      }
+      if (correctIdx >= 0) {
+        var correctBtn = document.getElementById('quiz-opt-' + i + '-' + correctIdx);
+        if (correctBtn) { correctBtn.style.borderColor = '#26de81'; correctBtn.style.background = '#e8fff3'; }
+      }
+      // 也通过答案文本匹配来高亮（双重保险）
+      if (correctIdx < 0) {
+        for (var k = 0; k < q.options.length; k++) {
+          if (q.options[k].toLowerCase().trim() === String(q.answer).toLowerCase().trim()) {
+            var correctBtn2 = document.getElementById('quiz-opt-' + i + '-' + k);
+            if (correctBtn2) { correctBtn2.style.borderColor = '#26de81'; correctBtn2.style.background = '#e8fff3'; }
+            break;
+          }
+        }
+      }
+      if (!isCorrect && userIdx !== undefined) {
+        var wrongBtn = document.getElementById('quiz-opt-' + i + '-' + userIdx);
+        if (wrongBtn) { wrongBtn.style.borderColor = '#ff5e57'; wrongBtn.style.background = '#fff0f0'; }
+      }
+      // 禁用所有选项按钮
+      for (var j = 0; j < q.options.length; j++) {
+        var optBtn = document.getElementById('quiz-opt-' + i + '-' + j);
+        if (optBtn) { optBtn.style.cursor = 'default'; optBtn.onclick = null; }
+      }
+    }
+    // 填空题：显示正确答案
+    if (q.type !== 'choice') {
+      var ansEl = document.getElementById('quiz-correct-ans-' + i);
+      var inputEl = document.getElementById('quiz-ans-' + i);
+      if (ansEl) {
+        ansEl.style.display = 'block';
+        if (isCorrect) {
+          ansEl.innerHTML = '<span style="color:#26de81;font-weight:700">回答正确！</span>';
+        } else {
+          ansEl.innerHTML = '<span style="color:#ff5e57;font-weight:700">正确答案：' + escHtml(q.answer) + '</span>';
+        }
+      }
+      if (inputEl) { inputEl.disabled = true; if (isCorrect) inputEl.style.borderColor = '#26de81'; else inputEl.style.borderColor = '#ff5e57'; }
     }
     if (isCorrect) correct++;
     else {
       var ansWord = q.answer;
+      // 选择题时，ansWord 可能是索引，需要转成单词
+      if (q.type === 'choice' && q.options) {
+        var idx = parseInt(q.answer);
+        if (!isNaN(idx) && q.options[idx]) ansWord = q.options[idx];
+        else ansWord = String(q.answer);
+      }
       for (var j = 0; j < wordBank.length; j++) {
         if (wordBank[j].word.toLowerCase() === ansWord.toLowerCase()) {
           wordBank[j].wrongCount = (wordBank[j].wrongCount||0) + 1;
