@@ -167,9 +167,7 @@ function addWord() {
     if (wordBank[i].word.toLowerCase() === val.toLowerCase()) { exists = true; break; }
   }
   if (exists) { showToast('单词已存在'); return; }
-  var today = todayStr();
-  wordBank.push({ id: Date.now(), word: val, zh:'', phonetic:'', definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false });
-  // Also read zh and phonetic from input fields
+  // Read zh and phonetic from input fields
   var zhInput = document.getElementById('input-zh');
   var phInput = document.getElementById('input-phonetic');
   var zhVal = zhInput ? zhInput.value.trim() : '';
@@ -191,11 +189,15 @@ function lookupWord() {
   if (!word) { showToast('请先输入单词'); return; }
   var resultEl = document.getElementById('lookup-result');
   if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '查询中...'; }
+  // 查询期间禁用添加按钮，防止异步翻译未完成就添加
+  var addBtn = document.getElementById('btn-add-word');
+  if (addBtn) addBtn.disabled = true;
   fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word))
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (!data || (Array.isArray(data) && data[0] && data[0].title === 'No Definitions Found') || (data.title === 'No Definitions Found')) {
         if (resultEl) resultEl.innerHTML = '<span style="color:#ff5e57">未找到该单词，请手动输入意思。</span>';
+        if (addBtn) addBtn.disabled = false;
         return;
       }
       var entry = Array.isArray(data) ? data[0] : data;
@@ -218,22 +220,23 @@ function lookupWord() {
         var pos = firstMeaning.partOfSpeech || '';
         if (firstMeaning.definitions && firstMeaning.definitions.length > 0) {
           var shortDef = firstMeaning.definitions[0].definition || '';
-          // Keep it short
           if (shortDef.length > 60) shortDef = shortDef.substring(0, 60) + '...';
           html += '<div style="color:#636e72;font-size:0.85rem">' + escHtml(pos) + ' ' + escHtml(shortDef) + '</div>';
         }
       }
       if (resultEl) resultEl.innerHTML = html;
-      // Translate word to Chinese
-      translateToChinese(word, entry);
+      // Translate word to Chinese, then re-enable add button
+      return translateToChinese(word, entry);
     })
+    .then(function() { if (addBtn) addBtn.disabled = false; })
     .catch(function(e) {
       if (resultEl) resultEl.innerHTML = '<span style="color:#ff5e57">查询失败，请手动输入意思。</span>';
+      if (addBtn) addBtn.disabled = false;
     });
 }
 function translateToChinese(word, entry) {
   // Only translate the word itself, not the definition
-  fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(word) + '&langpair=en|zh-CN')
+  return fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(word) + '&langpair=en|zh-CN')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data && data.responseData && data.responseData.translatedText) {
