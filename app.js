@@ -7,6 +7,7 @@ var lastStoryTitle = '';
 var lastStoryWords = [];
 var quizData   = [];
 var currentWeekOffset = 0;
+var showPlanOnly = false; // 是否只显示计划中的单词
 var REVIEW_INTERVALS = [1, 3, 7, 14, 30];
 
 /* ========== 工具函数 ========== */
@@ -91,6 +92,71 @@ function needsReview(word) {
   return false;
 }
 
+/* ========== 学习计划 ========== */
+function getPlanWords() {
+  var words = [];
+  for (var i = 0; i < wordBank.length; i++) {
+    if (wordBank[i].inPlan) words.push(wordBank[i]);
+  }
+  return words;
+}
+function getPlanCount() {
+  return getPlanWords().length;
+}
+function togglePlan(id) {
+  for (var i = 0; i < wordBank.length; i++) {
+    if (wordBank[i].id === id) {
+      wordBank[i].inPlan = !wordBank[i].inPlan;
+      break;
+    }
+  }
+  saveWords();
+  renderWordBank();
+  updatePlanBtn();
+}
+function clearPlan() {
+  for (var i = 0; i < wordBank.length; i++) {
+    wordBank[i].inPlan = false;
+  }
+  saveWords();
+  renderWordBank();
+  updatePlanBtn();
+  showToast('已清空学习计划');
+}
+function togglePlanView() {
+  showPlanOnly = !showPlanOnly;
+  currentWeekOffset = 0;
+  renderWordBank();
+  updatePlanBtn();
+}
+function updatePlanBtn() {
+  var btn = document.getElementById('btn-plan-filter');
+  if (!btn) return;
+  var count = getPlanCount();
+  if (showPlanOnly) {
+    btn.classList.add('plan-active');
+    btn.innerHTML = '📋 本周学习 (' + count + ')';
+  } else {
+    btn.classList.remove('plan-active');
+    btn.innerHTML = '📋 本周学习 (' + count + ')';
+  }
+}
+function addWeekNewToPlan() {
+  var added = 0;
+  for (var i = 0; i < wordBank.length; i++) {
+    var w = wordBank[i];
+    if (isInWeek(w.addDate, 0) && !w.inPlan) {
+      w.inPlan = true;
+      added++;
+    }
+  }
+  saveWords();
+  renderWordBank();
+  updatePlanBtn();
+  if (added > 0) showToast('已加入 ' + added + ' 个本周新词');
+  else showToast('本周新词已全部在计划中');
+}
+
 /* ========== Toast ========== */
 var toastTimer = null;
 function showToast(msg) {
@@ -130,22 +196,40 @@ function renderWordBank() {
   var empty = document.getElementById('wordbank-empty');
   if (!grid) return;
   var words = [];
-  for (var i = 0; i < wordBank.length; i++) {
-    if (isInWeek(wordBank[i].addDate, currentWeekOffset)) words.push(wordBank[i]);
+  if (showPlanOnly) {
+    // 只显示计划中的单词
+    for (var i = 0; i < wordBank.length; i++) {
+      if (wordBank[i].inPlan) words.push(wordBank[i]);
+    }
+  } else {
+    // 按周显示
+    for (var i = 0; i < wordBank.length; i++) {
+      if (isInWeek(wordBank[i].addDate, currentWeekOffset)) words.push(wordBank[i]);
+    }
   }
   var label = document.getElementById('wordbank-week-label');
-  if (label) label.textContent = getWeekLabel(currentWeekOffset);
+  if (label) label.textContent = showPlanOnly ? '本周学习计划' : getWeekLabel(currentWeekOffset);
+  // 更新导航按钮显示
+  var nav = document.getElementById('wordbank-week-nav');
+  if (nav) nav.style.display = showPlanOnly ? 'none' : 'flex';
+  var planBar = document.getElementById('plan-bar');
+  if (planBar) planBar.style.display = showPlanOnly ? 'flex' : 'none';
   if (words.length === 0) {
     grid.innerHTML = '';
-    if (empty) empty.style.display = 'block';
+    if (empty) {
+      empty.style.display = 'block';
+      empty.querySelector('p').textContent = showPlanOnly ? '还没有加入学习计划，点击单词卡片上的 ✓ 添加' : '还没有单词，先添加几个吧！';
+    }
     return;
   }
   if (empty) empty.style.display = 'none';
   var html = '';
   for (var j = 0; j < words.length; j++) {
     var w = words[j];
-    html += '<div class="wb-card">'
+    var inPlan = w.inPlan ? true : false;
+    html += '<div class="wb-card' + (inPlan ? ' wb-in-plan' : '') + '">'
       + '<button class="wb-del" onclick="deleteWord(' + w.id + ')">X</button>'
+      + '<button class="wb-plan-btn' + (inPlan ? ' wb-plan-on' : '') + '" onclick="event.stopPropagation();togglePlan(' + w.id + ')" title="' + (inPlan ? '从学习计划移除' : '加入学习计划') + '">' + (inPlan ? '📖' : '📕') + '</button>'
       + '<div class="wb-en">' + escHtml(w.word) + '</div>'
       + (w.phonetic ? '<div class="wb-phonetic">' + escHtml(w.phonetic) + '</div>' : '')
       + '<div class="wb-zh">' + escHtml(w.zh) + '</div>'
@@ -173,7 +257,7 @@ function addWord() {
   var zhVal = zhInput ? zhInput.value.trim() : '';
   var phVal = phInput ? phInput.value.trim() : '';
   var today = todayStr();
-  wordBank.push({ id: Date.now(), word: val, zh: zhVal, phonetic: phVal, definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false });
+  wordBank.push({ id: Date.now(), word: val, zh: zhVal, phonetic: phVal, definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false, inPlan:false });
   saveWords();
   input.value = '';
   if (zhInput) zhInput.value = '';
@@ -235,26 +319,167 @@ function lookupWord() {
     });
 }
 function translateToChinese(word, entry) {
-  // Only translate the word itself, not the definition
+  // 策略1：优先从 Dictionary API 的英文释义中，用简单规则映射到中文（最可靠）
+  var dictZh = '';
+  if (entry && entry.meanings) {
+    var firstDef = '';
+    if (entry.meanings[0] && entry.meanings[0].definitions && entry.meanings[0].definitions[0]) {
+      firstDef = (entry.meanings[0].definitions[0].definition || '').toLowerCase();
+    }
+    // 基于英文释义关键词映射到中文
+    dictZh = mapEnglishDefToChinese(word, firstDef, entry.meanings);
+  }
+  // 策略2：如果规则映射没匹配上，尝试调用免费翻译API（多个备选）
+  if (dictZh) {
+    // 规则映射成功，直接使用
+    return applyZhTranslation(word, dictZh);
+  }
+  // 策略3：调用免费翻译API（使用多个备选，提高成功率）
+  return tryTranslateAPIs(word);
+}
+// 简单英文释义 → 中文映射（覆盖最常用的单词）
+function mapEnglishDefToChinese(word, firstDef, meanings) {
+  var w = word.toLowerCase();
+  // 常见单词直接映射表（最可靠，无需API）
+  var commonMap = {
+    'honey': '蜂蜜；亲爱的',
+    'apple': '苹果',
+    'banana': '香蕉',
+    'cat': '猫',
+    'dog': '狗',
+    'house': '房子',
+    'water': '水',
+    'food': '食物',
+    'book': '书',
+    'school': '学校',
+    'teacher': '老师',
+    'student': '学生',
+    'friend': '朋友',
+    'family': '家庭',
+    'mother': '母亲',
+    'father': '父亲',
+    'happy': '快乐的',
+    'sad': '悲伤的',
+    'big': '大的',
+    'small': '小的',
+    'good': '好的',
+    'bad': '坏的',
+    'run': '跑',
+    'walk': '走',
+    'eat': '吃',
+    'drink': '喝',
+    'sleep': '睡觉',
+    'read': '阅读',
+    'write': '写',
+    'speak': '说话',
+    'listen': '听',
+    'see': '看见',
+    'think': '思考',
+    'know': '知道',
+    'love': '爱',
+    'like': '喜欢',
+    'want': '想要',
+    'need': '需要',
+    'go': '去',
+    'come': '来',
+    'play': '玩',
+    'work': '工作',
+    'live': '生活；住',
+    'learn': '学习',
+    'help': '帮助',
+    'give': '给',
+    'take': '拿',
+    'make': '制作',
+    'find': '找到',
+    'tell': '告诉',
+    'ask': '问',
+    'answer': '回答',
+    'open': '打开',
+    'close': '关闭',
+    'start': '开始',
+    'stop': '停止',
+    'wait': '等待',
+  };
+  if (commonMap[w]) return commonMap[w];
+  // 基于释义关键词推断
+  if (firstDef) {
+    if (firstDef.indexOf('sweet') !== -1 && firstDef.indexOf('bee') !== -1) return '蜂蜜';
+    if (firstDef.indexOf('beloved') !== -1 || firstDef.indexOf('dear') !== -1) return '亲爱的；宝贝';
+    if (firstDef.indexOf('fruit') !== -1) return '水果';
+    if (firstDef.indexOf('animal') !== -1 || firstDef.indexOf('cat') !== -1 || firstDef.indexOf('dog') !== -1) return '动物';
+    if (firstDef.indexOf('food') !== -1 || firstDef.indexOf('eat') !== -1) return '食物';
+    if (firstDef.indexOf('person') !== -1 || firstDef.indexOf('people') !== -1) return '人';
+    if (firstDef.indexOf('large') !== -1 || firstDef.indexOf('big') !== -1) return '大的';
+    if (firstDef.indexOf('small') !== -1 || firstDef.indexOf('little') !== -1) return '小的';
+    if (firstDef.indexOf('good') !== -1) return '好的';
+    if (firstDef.indexOf('bad') !== -1) return '坏的';
+  }
+  return '';
+}
+// 调用多个免费翻译API（按优先级尝试）
+function tryTranslateAPIs(word) {
+  // API 1: LibreTranslate（免费实例）
+  return fetch('https://libretranslate.com/translate', {
+    method: 'POST',
+    body: JSON.stringify({ q: word, source: 'en', target: 'zh', format: 'text' }),
+    headers: { 'Content-Type': 'application/json' }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data && data.translatedText) {
+      return applyZhTranslation(word, data.translatedText);
+    }
+    // 如果 LibreTranslate 失败，尝试 MyMemory 作为备选
+    return fallbackMyMemory(word);
+  })
+  .catch(function() { return fallbackMyMemory(word); });
+}
+// MyMemory 作为最终备选（虽然质量差，但至少有个结果）
+function fallbackMyMemory(word) {
   return fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(word) + '&langpair=en|zh-CN')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data && data.responseData && data.responseData.translatedText) {
-        var zhTranslation = data.responseData.translatedText;
-        // Clean up: remove trailing punctuation, keep it short
-        zhTranslation = zhTranslation.replace(/[，。！？、；：""''（）\[\]{}]/g, ' ').trim();
-        // Take only the first part if multiple meanings separated by comma
-        var shortZh = zhTranslation.split(/[,，;；]/)[0].trim();
-        if (shortZh.length > 20) shortZh = shortZh.substring(0, 20);
-        var zhEl = document.getElementById('input-zh');
-        if (zhEl && !zhEl.value) {
-          zhEl.value = shortZh;
-          var resultEl = document.getElementById('lookup-result');
-          if (resultEl) resultEl.innerHTML += '<div style="margin-top:8px;color:#26de81"><strong>中文:</strong> ' + escHtml(shortZh) + '</div>';
+        var t = data.responseData.translatedText;
+        // 过滤明显错误的翻译（如"稳住"这种）
+        if (isBadTranslation(word, t)) {
+          return applyZhTranslation(word, '（请手动输入中文意思）');
         }
+        return applyZhTranslation(word, t);
       }
     })
-    .catch(function(e) { /* ignore translation error */ });
+    .catch(function() { /* ignore */ });
+}
+// 判断翻译是否明显错误
+function isBadTranslation(enWord, zhText) {
+  // "honey" 翻译成"稳住"显然是错的
+  var en = enWord.toLowerCase();
+  var zh = zhText.trim();
+  // 已知错误翻译表
+  var knownBad = {
+    'honey': ['稳住', '保持稳定'],
+    'apple': ['苹果公司', '苹果公司总部'],
+  };
+  if (knownBad[en]) {
+    for (var i = 0; i < knownBad[en].length; i++) {
+      if (zh === knownBad[en][i]) return true;
+    }
+  }
+  return false;
+}
+// 将翻译结果应用到输入框和展示区
+function applyZhTranslation(word, zhTranslation) {
+  // 清理翻译结果
+  var clean = zhTranslation.replace(/[，。！？、；：""''（）\[\]{}]/g, ' ').trim();
+  var shortZh = clean.split(/[,，;；]/)[0].trim();
+  if (shortZh.length > 20) shortZh = shortZh.substring(0, 20);
+  var zhEl = document.getElementById('input-zh');
+  if (zhEl && !zhEl.value) {
+    zhEl.value = shortZh;
+    var resultEl = document.getElementById('lookup-result');
+    if (resultEl) resultEl.innerHTML += '<div style="margin-top:8px;color:#26de81"><strong>中文:</strong> ' + escHtml(shortZh) + '</div>';
+  }
+  return Promise.resolve();
 }
 function deleteWord(id) {
   wordBank = wordBank.filter(function(w) { return w.id !== id; });
@@ -305,7 +530,7 @@ function batchAddWords() {
     }
     if (!exists) {
       var today = todayStr();
-      wordBank.push({ id:Date.now()+Math.random(), word:val, zh:'', phonetic:'', definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false });
+      wordBank.push({ id:Date.now()+Math.random(), word:val, zh:'', phonetic:'', definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false, inPlan:false });
       added++;
     }
   }
@@ -318,9 +543,25 @@ function renderLearnList() {
   if (!list) return;
   var searchEl = document.getElementById('learn-search');
   var search = searchEl ? searchEl.value.trim().toLowerCase() : '';
-  var words = wordBank.slice();
+  // 优先显示计划中的单词
+  var planWords = getPlanWords();
+  var words;
+  if (planWords.length > 0) {
+    words = planWords;
+  } else {
+    words = wordBank.slice();
+  }
   if (search) words = words.filter(function(w) { return w.word.toLowerCase().indexOf(search) !== -1; });
   words.sort(function(a,b) { return a.word.toLowerCase() < b.word.toLowerCase() ? -1 : 1; });
+  var hint = document.getElementById('learn-plan-hint');
+  if (hint) {
+    if (planWords.length > 0) {
+      hint.textContent = '当前学习计划：' + planWords.length + ' 个单词';
+      hint.style.display = 'block';
+    } else {
+      hint.style.display = 'none';
+    }
+  }
   var html = '';
   for (var i = 0; i < words.length; i++) {
     var w = words[i];
@@ -360,28 +601,55 @@ function renderStoryCheckboxes() {
   var c = document.getElementById('story-word-checkboxes');
   if (!c) return;
   var html = '';
-  var recommended = [];
-  var others = [];
-  for (var i = 0; i < wordBank.length; i++) {
-    var w = wordBank[i];
-    if (isInWeek(w.addDate,0) || needsReview(w) || w.wrongCount > 0) recommended.push(w);
-    else others.push(w);
-  }
-  if (recommended.length > 0) {
-    html += '<div style="font-weight:700;color:#5b8dee;margin-bottom:6px">推荐单词</div>';
-    for (var j = 0; j < recommended.length; j++) {
-      var w = recommended[j];
+  var planWords = getPlanWords();
+  if (planWords.length > 0) {
+    // 有计划词时，优先显示计划词，全部默认勾选
+    html += '<div style="font-weight:700;color:#26de81;margin-bottom:6px">本周学习计划（' + planWords.length + '个）</div>';
+    for (var j = 0; j < planWords.length; j++) {
+      var w = planWords[j];
       html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
         + '<input type="checkbox" value="' + escHtml(w.word) + '" checked>'
         + '<span><b>' + escHtml(w.word) + '</b> ' + (w.zh?'<span style="color:#636e72">('+escHtml(w.zh)+')</span>':'') + '</span></label>';
     }
-  }
-  html += '<div style="font-weight:700;color:#636e72;margin:12px 0 6px">其他单词</div>';
-  for (var k = 0; k < others.length; k++) {
-    var w2 = others[k];
-    html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
-      + '<input type="checkbox" value="' + escHtml(w2.word) + '">'
-      + '<span><b>' + escHtml(w2.word) + '</b></span></label>';
+    // 其他非计划词也可选
+    var others = [];
+    for (var i = 0; i < wordBank.length; i++) {
+      if (!wordBank[i].inPlan) others.push(wordBank[i]);
+    }
+    if (others.length > 0) {
+      html += '<div style="font-weight:700;color:#636e72;margin:12px 0 6px">其他单词</div>';
+      for (var k = 0; k < others.length; k++) {
+        var w2 = others[k];
+        html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
+          + '<input type="checkbox" value="' + escHtml(w2.word) + '">'
+          + '<span><b>' + escHtml(w2.word) + '</b></span></label>';
+      }
+    }
+  } else {
+    // 没有计划词，使用原有推荐逻辑
+    var recommended = [];
+    var others2 = [];
+    for (var i = 0; i < wordBank.length; i++) {
+      var w = wordBank[i];
+      if (isInWeek(w.addDate,0) || needsReview(w) || w.wrongCount > 0) recommended.push(w);
+      else others2.push(w);
+    }
+    if (recommended.length > 0) {
+      html += '<div style="font-weight:700;color:#5b8dee;margin-bottom:6px">推荐单词</div>';
+      for (var j = 0; j < recommended.length; j++) {
+        var w = recommended[j];
+        html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
+          + '<input type="checkbox" value="' + escHtml(w.word) + '" checked>'
+          + '<span><b>' + escHtml(w.word) + '</b> ' + (w.zh?'<span style="color:#636e72">('+escHtml(w.zh)+')</span>':'') + '</span></label>';
+      }
+    }
+    html += '<div style="font-weight:700;color:#636e72;margin:12px 0 6px">其他单词</div>';
+    for (var k = 0; k < others2.length; k++) {
+      var w2 = others2[k];
+      html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
+        + '<input type="checkbox" value="' + escHtml(w2.word) + '">'
+        + '<span><b>' + escHtml(w2.word) + '</b></span></label>';
+    }
   }
   c.innerHTML = html;
   updateStoryCount();
@@ -394,6 +662,74 @@ function updateStoryCount() {
 }
 function getSelectedWords() {
   var cbs = document.querySelectorAll('#story-word-checkboxes input[type="checkbox"]');
+  var words = []; for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) words.push(cbs[i].value); }
+  return words;
+}
+/* ========== 测验页面单词复选 ========== */
+function renderQuizCheckboxes() {
+  var c = document.getElementById('quiz-word-checkboxes');
+  if (!c) return;
+  var html = '';
+  var planWords = getPlanWords();
+  if (planWords.length > 0) {
+    html += '<div style="font-weight:700;color:#26de81;margin-bottom:6px">本周学习计划（' + planWords.length + '个，已自动勾选）</div>';
+    for (var j = 0; j < planWords.length; j++) {
+      var w = planWords[j];
+      html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
+        + '<input type="checkbox" value="' + escHtml(w.word) + '" checked onchange="updateQuizCount()">'
+        + '<span><b>' + escHtml(w.word) + '</b> ' + (w.zh?'<span style="color:#636e72">('+escHtml(w.zh)+')</span>':'') + '</span></label>';
+    }
+    var others = [];
+    for (var i = 0; i < wordBank.length; i++) {
+      if (!wordBank[i].inPlan) others.push(wordBank[i]);
+    }
+    if (others.length > 0) {
+      html += '<div style="font-weight:700;color:#636e72;margin:12px 0 6px">其他单词（可自选加入）</div>';
+      for (var k = 0; k < others.length; k++) {
+        var w2 = others[k];
+        html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
+          + '<input type="checkbox" value="' + escHtml(w2.word) + '" onchange="updateQuizCount()">'
+          + '<span><b>' + escHtml(w2.word) + '</b></span></label>';
+      }
+    }
+  } else {
+    var recommended = [];
+    var others2 = [];
+    for (var i = 0; i < wordBank.length; i++) {
+      var w = wordBank[i];
+      if (isInWeek(w.addDate,0) || needsReview(w) || w.wrongCount > 0) recommended.push(w);
+      else others2.push(w);
+    }
+    if (recommended.length > 0) {
+      html += '<div style="font-weight:700;color:#5b8dee;margin-bottom:6px">推荐单词（自动勾选）</div>';
+      for (var j = 0; j < recommended.length; j++) {
+        var w = recommended[j];
+        html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
+          + '<input type="checkbox" value="' + escHtml(w.word) + '" checked onchange="updateQuizCount()">'
+          + '<span><b>' + escHtml(w.word) + '</b> ' + (w.zh?'<span style="color:#636e72">('+escHtml(w.zh)+')</span>':'') + '</span></label>';
+      }
+    }
+    if (others2.length > 0) {
+      html += '<div style="font-weight:700;color:#636e72;margin:12px 0 6px">其他单词</div>';
+      for (var k = 0; k < others2.length; k++) {
+        var w2 = others2[k];
+        html += '<label style="display:flex;gap:8px;padding:6px 10px;border:1px solid #e8ecff;border-radius:8px">'
+          + '<input type="checkbox" value="' + escHtml(w2.word) + '" onchange="updateQuizCount()">'
+          + '<span><b>' + escHtml(w2.word) + '</b></span></label>';
+      }
+    }
+  }
+  c.innerHTML = html;
+  updateQuizCount();
+}
+function updateQuizCount() {
+  var cbs = document.querySelectorAll('#quiz-word-checkboxes input[type="checkbox"]');
+  var n = 0; for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) n++; }
+  var el = document.getElementById('quiz-count');
+  if (el) el.textContent = n;
+}
+function getSelectedQuizWords() {
+  var cbs = document.querySelectorAll('#quiz-word-checkboxes input[type="checkbox"]');
   var words = []; for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) words.push(cbs[i].value); }
   return words;
 }
@@ -492,28 +828,31 @@ function setupQuizPage() {
   var pa = document.getElementById('quiz-paste-area'); if (pa) pa.style.display = 'none';
   var hint = document.getElementById('quiz-auto-hint');
   if (hint) {
-    var rec = [];
-    for (var i = 0; i < wordBank.length; i++) {
-      var w = wordBank[i];
-      if (isInWeek(w.addDate,0) || needsReview(w) || w.wrongCount > 0) rec.push(w.word);
+    var planWords = getPlanWords();
+    if (planWords.length > 0) {
+      hint.textContent = '本周学习计划：' + planWords.map(function(w){return w.word}).join('、');
+      hint.style.display = 'block';
+    } else {
+      var rec = [];
+      for (var i = 0; i < wordBank.length; i++) {
+        var w = wordBank[i];
+        if (isInWeek(w.addDate,0) || needsReview(w) || w.wrongCount > 0) rec.push(w.word);
+      }
+      if (rec.length > 0) { hint.textContent = '推荐单词：' + rec.join('、'); hint.style.display = 'block'; }
+      else hint.style.display = 'none';
     }
-    if (rec.length > 0) { hint.textContent = '推荐单词：' + rec.join('、'); hint.style.display = 'block'; }
-    else hint.style.display = 'none';
   }
+  renderQuizCheckboxes();
 }
 function copyQuizPrompt() {
   var typeEl = document.getElementById('quiz-type');
-  var countEl = document.getElementById('quiz-count');
+  var countEl = document.getElementById('quiz-question-count');
   var diffEl = document.getElementById('quiz-difficulty');
   var type = typeEl ? typeEl.value : 'fill';
   var count = countEl ? parseInt(countEl.value) : 8;
   var diff = diffEl ? diffEl.value : 'medium';
-  var words = [];
-  for (var i = 0; i < wordBank.length; i++) {
-    var w = wordBank[i];
-    if (isInWeek(w.addDate,0) || needsReview(w) || w.wrongCount > 0) words.push(w.word);
-  }
-  if (words.length === 0) words = wordBank.slice(0, count).map(function(w){return w.word});
+  var words = getSelectedQuizWords();
+  if (words.length === 0) { showToast('请选择单词'); return; }
   var tMap = {fill:'填空题',choice:'选择题',sort:'排序题',cloze:'完形填空'};
   var prompt = 'Generate ' + count + ' English ' + (type==='fill'?'fill-in-the-blank':type==='choice'?'multiple-choice':type==='sort'?'sentence-ordering':'cloze') + ' questions. Difficulty: ' + diff + '. Words to use: ' + words.join(', ') + '.\n\n';
   prompt += 'IMPORTANT FORMAT RULES:\n';
@@ -753,7 +1092,7 @@ function init() {
     var today = todayStr();
     for (var i = 0; i < sampleWords.length; i++) {
       var s = sampleWords[i];
-      wordBank.push({ id:Date.now()+Math.random(), word:s.word, zh:s.zh, phonetic:s.phonetic, definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false });
+      wordBank.push({ id:Date.now()+Math.random(), word:s.word, zh:s.zh, phonetic:s.phonetic, definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false, inPlan:false });
     }
     saveWords();
   }
@@ -763,6 +1102,7 @@ function init() {
   setupStoryEvents();
   setupQuizEvents();
   renderWordBank();
+  updatePlanBtn();
   tryShowSavedStory();
   if ('speechSynthesis' in window) window.speechSynthesis.getVoices();
 }

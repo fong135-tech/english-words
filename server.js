@@ -1,7 +1,7 @@
 ﻿const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const dir = "c:/Users/KK/WorkBuddy/20260504010031/english-words";
+const dir = "C:/Users/KK/Documents/GitHub/english-words";
 const mime = {".html":"text/html;charset=utf-8",".css":"text/css",".js":"application/javascript"};
 http.createServer((req, res) => {
   let fp = path.join(dir, req.url==="/" ? "index.html" : req.url.split("?")[0]);
