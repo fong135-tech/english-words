@@ -98,10 +98,16 @@ footer { background: white; border-top: 1px solid #dfe6e9; padding: 14px 24px; d
     </div>
     <div class="card" style="margin-bottom:16px">
       <h3 style="margin-bottom:10px">添加新单词</h3>
-      <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="display:flex;gap:10px;margin-bottom:10px">
         <input id="input-word" type="text" style="flex:1" placeholder="输入英文单词，如: adventure">
+        <button id="btn-lookup-word" class="btn btn-secondary" onclick="lookupWord()">查询</button>
         <button id="btn-add-word" class="btn btn-primary">添加</button>
       </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <input id="input-zh" type="text" style="flex:1" placeholder="中文意思（自动查询或手动输入）">
+        <input id="input-phonetic" type="text" style="flex:1" placeholder="音标（自动填充）">
+      </div>
+      <div id="lookup-result" style="display:none;margin-bottom:10px;padding:10px;background:#f8faff;border-radius:10px;font-size:0.88rem;color:#2d3436"></div>
       <div style="display:flex;gap:10px;align-items:flex-start">
         <textarea id="input-batch" style="flex:1" placeholder="批量添加：每行一个单词"></textarea>
         <button id="btn-batch-add" class="btn btn-secondary">批量添加</button>

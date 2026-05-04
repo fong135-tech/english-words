@@ -169,7 +169,107 @@ function addWord() {
   if (exists) { showToast('单词已存在'); return; }
   var today = todayStr();
   wordBank.push({ id: Date.now(), word: val, zh:'', phonetic:'', definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false });
-  saveWords(); input.value = ''; renderWordBank(); showToast('添加成功');
+  // Also read zh and phonetic from input fields
+  var zhInput = document.getElementById('input-zh');
+  var phInput = document.getElementById('input-phonetic');
+  var zhVal = zhInput ? zhInput.value.trim() : '';
+  var phVal = phInput ? phInput.value.trim() : '';
+  var today = todayStr();
+  wordBank.push({ id: Date.now(), word: val, zh: zhVal, phonetic: phVal, definitions:[], examples:[], etymology:'', addDate:today, reviewPlan:buildReviewPlan(today), wrongCount:0, lastWrong:'', mastered:false });
+  saveWords();
+  input.value = '';
+  if (zhInput) zhInput.value = '';
+  if (phInput) phInput.value = '';
+  var lr = document.getElementById('lookup-result');
+  if (lr) lr.style.display = 'none';
+  renderWordBank(); showToast('添加成功');
+}
+function lookupWord() {
+  var input = document.getElementById('input-word');
+  if (!input) return;
+  var word = input.value.trim();
+  if (!word) { showToast('请先输入单词'); return; }
+  var resultEl = document.getElementById('lookup-result');
+  if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '查询中...'; }
+  fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data || (Array.isArray(data) && data[0] && data[0].title === 'No Definitions Found') || (data.title === 'No Definitions Found')) {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#ff5e57">未找到该单词，请手动输入意思。</span>';
+        return;
+      }
+      var entry = Array.isArray(data) ? data[0] : data;
+      var html = '';
+      // Phonetic
+      var phonetic = entry.phonetic || '';
+      if (entry.phonetics) {
+        for (var p = 0; p < entry.phonetics.length; p++) {
+          if (entry.phonetics[p].text) { phonetic = entry.phonetics[p].text; break; }
+        }
+      }
+      if (phonetic) {
+        var phEl = document.getElementById('input-phonetic');
+        if (phEl) phEl.value = phonetic;
+        html += '<div style="color:#5b8dee;font-weight:600;margin-bottom:6px">音标: /' + escHtml(phonetic) + '/</div>';
+      }
+      // Meanings / definitions
+      if (entry.meanings) {
+        html += '<div><strong>英文释义:</strong></div>';
+        var defs = [];
+        for (var i = 0; i < Math.min(entry.meanings.length, 3); i++) {
+          var m = entry.meanings[i];
+          var pos = m.partOfSpeech || '';
+          for (var j = 0; j < Math.min(m.definitions.length, 2); j++) {
+            var d = m.definitions[j];
+            var defText = (d.definition || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            defs.push('<span style="color:#5b8dee">' + escHtml(pos) + '</span> ' + defText);
+            if (d.example) {
+              defs[defs.length-1] += '<br><span style="color:#b2bec3;font-size:0.85rem">例: ' + escHtml(d.example) + '</span>';
+            }
+          }
+        }
+        html += '<div style="margin-top:4px;color:#2d3436;line-height:1.7">' + defs.join('<br>') + '</div>';
+      }
+      if (resultEl) resultEl.innerHTML = html;
+      // Try to translate to Chinese using free Google Translate endpoint
+      translateToChinese(word, entry);
+    })
+    .catch(function(e) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:#ff5e57">查询失败，请手动输入意思。</span>';
+    });
+}
+function translateToChinese(word, entry) {
+  // Use free Google Translate to get Chinese meaning
+  var textToTranslate = word;
+  if (entry && entry.meanings) {
+    var firstDef = '';
+    for (var i = 0; i < entry.meanings.length; i++) {
+      for (var j = 0; j < entry.meanings[i].definitions.length; j++) {
+        firstDef = entry.meanings[i].definitions[j].definition;
+        break;
+      }
+      if (firstDef) break;
+    }
+    if (firstDef) textToTranslate = firstDef;
+  }
+  // Use a simple approach: just set placeholder with English def, user can type Chinese manually
+  // For actual Chinese translation, we'd need a backend or CORS proxy
+  // Instead, let's try the free LibreTranslate API or similar
+  // Simplest: use MyMemory free translation API
+  fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(textToTranslate) + '&langpair=en|zh-CN')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.responseData && data.responseData.translatedText) {
+        var zhTranslation = data.responseData.translatedText;
+        var zhEl = document.getElementById('input-zh');
+        if (zhEl && !zhEl.value) {
+          zhEl.value = zhTranslation;
+          var resultEl = document.getElementById('lookup-result');
+          if (resultEl) resultEl.innerHTML += '<div style="margin-top:8px;color:#26de81"><strong>中文意思（自动翻译）:</strong> ' + escHtml(zhTranslation) + '</div>';
+        }
+      }
+    })
+    .catch(function(e) { /* ignore translation error */ });
 }
 function deleteWord(id) {
   wordBank = wordBank.filter(function(w) { return w.id !== id; });
