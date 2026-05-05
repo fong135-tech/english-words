@@ -813,7 +813,7 @@ function copyStoryPrompt() {
   var style = styleEl ? styleEl.value : 'adventure';
   var length = lenEl ? lenEl.value : 'medium';
   var sMap = {adventure:'adventure',fairy:'fairy tale',funny:'funny',science:'science fiction',daily:'daily life'};
-  var lMap = {short:'100',medium:'200',long:'300'};
+  var lMap = {short:'300',medium:'500',long:'800'};
   var prompt = 'Write an English ' + (sMap[style]||'adventure') + ' story using about ' + (lMap[length]||'200') + ' words.\n\n';
   prompt += 'REQUIRED: You MUST wrap EVERY word from the list below in double asterisks like **word** in the story text.\n';
   prompt += 'Example: "The **brave** knight found a **magic** sword."\n\n';
